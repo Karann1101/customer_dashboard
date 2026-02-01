@@ -297,7 +297,9 @@ rfm_table = compute_rfm(df)
 # ---------------------------
 # SIDEBAR: filters and segment selection
 # ---------------------------
-st.sidebar.header("Filters")
+st.sidebar.markdown("## 🔎 Filters")
+st.sidebar.caption("Use filters to explore specific customer segments")
+
 # reuse or redefine filters with safety if columns missing
 state_options = sorted(df["customer_state"].dropna().unique()) if "customer_state" in df.columns else []
 category_options = sorted(df["product_category"].dropna().unique()) if "product_category" in df.columns else []
@@ -331,19 +333,27 @@ else:
 # ---------------------------
 # PAGE LAYOUT
 # ---------------------------
-st.title("📊 Customer Satisfaction & RFM Dashboard")
+st.markdown(
+    """
+    <h1 style="margin-bottom:0">📊 Customer Intelligence Dashboard</h1>
+    <p style="color:gray; margin-top:4px">
+    RFM-based customer segmentation & satisfaction insights
+    </p>
+    """,
+    unsafe_allow_html=True
+)
 
 # Executive KPIs (order-level / filtered)
 col1, col2, col3, col4 = st.columns(4)
-col1.metric("Avg Review Score", round(df_filtered["review_score"].mean(), 2) if "review_score" in df_filtered.columns else "N/A")
-col2.metric("Unhappy Customers %", f"{round(df_filtered['is_unhappy'].mean()*100,2)}%" if "is_unhappy" in df_filtered.columns else "N/A")
-col3.metric("Late Delivery %", f"{round((df_filtered['delivery_delay_days']>0).mean()*100,2)}%" if "delivery_delay_days" in df_filtered.columns else "N/A")
-col4.metric("Avg Freight / Price", round(df_filtered["freight_to_price_ratio"].mean(), 2) if "freight_to_price_ratio" in df_filtered.columns else "N/A")
+col1.metric("⭐ Average Rating", round(df_filtered["review_score"].mean(), 2))
+col2.metric("😟 Unhappy Customers", f"{round(df_filtered['is_unhappy'].mean()*100,2)}%")
+col3.metric("🚚 Late Deliveries", f"{round((df_filtered['delivery_delay_days']>0).mean()*100,2)}%")
+col4.metric("💸 Shipping Cost Ratio", round(df_filtered["freight_to_price_ratio"].mean(), 2))
 
 st.markdown("---")
 
 # Delivery impact (satisfaction)
-st.subheader("🚚 Delivery Performance vs Satisfaction")
+st.subheader("🚚 Delivery Experience Impact on Customer Satisfaction")
 if "delay_bucket" in df_filtered.columns:
     c1, c2 = st.columns(2)
     with c1:
@@ -397,7 +407,12 @@ if "product_category" in df_filtered.columns:
         .query("orders > 50")
         .sort_values("unhappy_rate", ascending=False)
     )
-    st.dataframe(category_stats.assign(unhappy_rate=lambda x: (x["unhappy_rate"]*100).round(2)))
+    st.dataframe(
+    category_stats
+    .assign(unhappy_rate=lambda x: (x["unhappy_rate"]*100).round(2)),
+    use_container_width=True
+    )
+
 else:
     st.warning("product_category not present.")
 
@@ -418,7 +433,10 @@ st.markdown("---")
 # ---------------------------
 # RFM Section
 # ---------------------------
-st.subheader("🏷 RFM Customer Segmentation")
+st.subheader("🏷 Customer Segmentation (RFM Analysis)")
+st.caption(
+    "Customers grouped by Recency, Frequency, and Monetary value to guide retention and growth strategies."
+)
 if rfm_filtered is None:
     st.warning("RFM table could not be computed (missing order timestamps or monetary info).")
 else:
@@ -454,11 +472,13 @@ st.markdown("---")
 
 # Insights block (editable)
 st.subheader("🧠 Key Business Insights & Actions")
+st.caption("Actionable recommendations derived from the data:")
 st.markdown("""
 - **RFM**: Identify 'Champions' for loyalty programs and 'At Risk' for win-back campaigns.  
 - **Delivery**: Prioritize logistics improvement for states/categories with high unhappy rates.  
 - **Freight**: Consider free-shipping thresholds or bundling for orders with high freight/price ratios.  
 - **Payment**: Make checkout smoother for payment types correlated with lower reviews.  
 """)
+
 
 # End of app
