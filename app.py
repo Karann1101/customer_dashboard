@@ -5,6 +5,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
+import plotly.express as px
 from datetime import timedelta
 
 st.set_page_config(page_title="Customer Satisfaction + RFM Dashboard", layout="wide")
@@ -331,154 +332,221 @@ else:
     rfm_filtered = None
 
 # ---------------------------
-# PAGE LAYOUT
+# PAGE LAYOUT (interactive, tabbed)
 # ---------------------------
-st.markdown(
-    """
-    <h1 style="margin-bottom:0">📊 Customer Intelligence Dashboard</h1>
-    <p style="color:gray; margin-top:4px">
-    RFM-based customer segmentation & satisfaction insights
-    </p>
-    """,
-    unsafe_allow_html=True
-)
+# This whole block replaces previous page-layout sections and adds interactivity:
+tab_overview, tab_rfm, tab_ops = st.tabs([
+    "📊 Overview",
+    "🏷 RFM & Segments",
+    "🚚 Ops & Satisfaction"
+])
 
-# Executive KPIs (order-level / filtered)
-col1, col2, col3, col4 = st.columns(4)
-col1.metric("⭐ Average Rating", round(df_filtered["review_score"].mean(), 2))
-col2.metric("😟 Unhappy Customers", f"{round(df_filtered['is_unhappy'].mean()*100,2)}%")
-col3.metric("🚚 Late Deliveries", f"{round((df_filtered['delivery_delay_days']>0).mean()*100,2)}%")
-col4.metric("💸 Shipping Cost Ratio", round(df_filtered["freight_to_price_ratio"].mean(), 2))
+# Prepare a revenue fallback (use RFM monetary if present, else payments/price)
+if rfm_table is not None and "monetary" in rfm_table.columns:
+    total_revenue = rfm_table["monetary"].sum()
+elif "payment_value" in df.columns:
+    total_revenue = df["payment_value"].sum()
+elif "price" in df.columns:
+    total_revenue = df["price"].sum()
+else:
+    total_revenue = 0.0
 
-st.markdown("---")
+# ========== TAB 1: Overview ==========
+with tab_overview:
+    # Header
+    st.markdown(
+        """
+        <h2 style="margin:0">📊 Executive Overview</h2>
+        <p style="color:gray; margin-top:4px">High-level KPIs and quick filters</p>
+        """,
+        unsafe_allow_html=True
+    )
 
-# Delivery impact (satisfaction)
-st.subheader("🚚 Delivery Experience Impact on Customer Satisfaction")
-if "delay_bucket" in df_filtered.columns:
+    # KPIs
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("👥 Customers (unique)", df["customer_unique_id"].nunique())
+    k2.metric("💰 Estimated Revenue", f"₹ {total_revenue:,.0f}")
+    k3.metric("⭐ Avg Rating", round(df_filtered["review_score"].mean(), 2) if "review_score" in df_filtered.columns else "N/A")
+    k4.metric("⚠️ Unhappy %", f"{round(df_filtered['is_unhappy'].mean()*100,2)}%" if "is_unhappy" in df_filtered.columns else "N/A")
+
+    st.markdown("---")
+
+    # Small summary row
+    c1, c2 = st.columns([3, 2])
+    with c1:
+        st.subheader("Trends & quick views")
+        # trend placeholder: orders over time if available
+        if "order_purchase_timestamp" in df.columns:
+            orders_ts = df_filtered.set_index("order_purchase_timestamp").resample("W").size()
+            fig, ax = plt.subplots()
+            orders_ts.plot(ax=ax)
+            ax.set_title("Orders per week (filtered)")
+            ax.set_ylabel("Orders")
+            st.pyplot(fig)
+        else:
+            st.info("No order timestamp available for trend plots.")
+    with c2:
+        st.subheader("Quick Actions")
+        st.write("- Target `At Risk` with email coupon")
+        st.write("- Investigate top categories with high unhappy rates")
+        st.write("- Inspect sellers in low-rating states")
+
+# ========== TAB 2: RFM & Segments ==========
+with tab_rfm:
+    st.markdown(
+        "<h2 style='margin:0'>🏷 RFM & Segment Analysis</h2>",
+        unsafe_allow_html=True
+    )
+    st.caption("Compare segments, explore top customers, and visualize customer value.")
+
+    if rfm_table is None:
+        st.warning("RFM could not be computed — missing timestamps or monetary info.")
+    else:
+        # Segment comparison controls
+        st.markdown("### 🔍 Compare segments")
+        seg_options = sorted(rfm_filtered["rfm_segment"].unique()) if (rfm_filtered is not None and not rfm_filtered.empty) else sorted(rfm_table["rfm_segment"].unique())
+        left, right = st.columns(2)
+        with left:
+            seg_a = st.selectbox("Segment A", options=seg_options, index=0)
+        with right:
+            seg_b = st.selectbox("Segment B", options=seg_options, index=1 if len(seg_options)>1 else 0)
+
+        seg_a_df = rfm_table[rfm_table["rfm_segment"] == seg_a]
+        seg_b_df = rfm_table[rfm_table["rfm_segment"] == seg_b]
+
+        ca, cb = st.columns(2)
+        ca.metric(f"{seg_a} — Customers", seg_a_df.shape[0])
+        ca.metric(f"{seg_a} — Avg Spend", f"₹ {seg_a_df['monetary'].mean():,.0f}")
+        cb.metric(f"{seg_b} — Customers", seg_b_df.shape[0])
+        cb.metric(f"{seg_b} — Avg Spend", f"₹ {seg_b_df['monetary'].mean():,.0f}")
+
+        st.markdown("---")
+        # Revenue by segment (bar)
+        seg_revenue = rfm_table.groupby("rfm_segment")["monetary"].sum().sort_values(ascending=False)
+        fig, ax = plt.subplots()
+        seg_revenue.plot(kind="bar", ax=ax)
+        ax.set_title("Revenue by RFM Segment")
+        ax.set_ylabel("Revenue")
+        st.pyplot(fig)
+
+        st.markdown("---")
+        # interactive scatter with Plotly
+        st.markdown("### 💎 Customer Value Distribution")
+        fig_px = px.scatter(
+            rfm_table,
+            x="frequency",
+            y="monetary",
+            color="rfm_segment",
+            hover_data=["recency_days"],
+            title="Frequency vs Monetary (hover for Recency)",
+            width=900,
+            height=450
+        )
+        st.plotly_chart(fig_px, use_container_width=True)
+
+        # Top customers expander
+        with st.expander("🏆 Top 20 customers (by monetary)"):
+            top_customers = rfm_table.sort_values("monetary", ascending=False).head(20)
+            st.dataframe(top_customers[["customer_unique_id","recency_days","frequency","monetary","rfm_score","rfm_segment"]], use_container_width=True)
+
+        # At-risk expander
+        with st.expander("⚠️ At Risk Customers (sample)"):
+            at_risk = rfm_table[rfm_table["rfm_segment"] == "At Risk"].sort_values("recency_days", ascending=False).head(50)
+            st.dataframe(at_risk[["customer_unique_id","recency_days","frequency","monetary"]], use_container_width=True)
+
+# ========== TAB 3: Operations & Satisfaction ==========
+with tab_ops:
+    st.markdown("<h2 style='margin:0'>🚚 Operations & Customer Satisfaction</h2>", unsafe_allow_html=True)
+    st.caption("Drill into delivery, freight and payment impacts on satisfaction.")
+
+    # interactive metric choice for delivery charts
+    metric_choice = st.radio(
+        "Metric to analyze by delivery performance:",
+        options=["review_score", "is_unhappy", "freight_to_price_ratio"],
+        horizontal=True
+    )
+
+    # slider for late threshold
+    late_threshold = st.slider(
+        "Late delivery threshold (days after estimated delivery)",
+        min_value=0,
+        max_value=10,
+        value=3
+    )
+
+    # compute custom late flag
+    if "delivery_delay_days" in df_filtered.columns:
+        df_filtered["is_late_custom"] = (df_filtered["delivery_delay_days"] > late_threshold).astype(int)
+    else:
+        df_filtered["is_late_custom"] = 0
+
+    st.markdown("### Delivery performance impact")
     c1, c2 = st.columns(2)
     with c1:
-        fig, ax = plt.subplots()
-        df_filtered.groupby("delay_bucket")["review_score"].mean().plot(kind="bar", ax=ax)
-        ax.set_ylabel("Average Review Score")
-        st.pyplot(fig)
+        # show chosen metric aggregated by delay_bucket
+        if "delay_bucket" in df_filtered.columns:
+            agg = df_filtered.groupby("delay_bucket")[metric_choice].mean()
+            fig, ax = plt.subplots()
+            agg.plot(kind="bar", ax=ax)
+            ax.set_ylabel(metric_choice.replace("_"," ").title())
+            ax.set_title(f"{metric_choice.replace('_',' ').title()} by Delivery Bucket")
+            st.pyplot(fig)
+        else:
+            st.info("No delivery_bucket data available.")
+
     with c2:
+        if "delivery_delay_days" in df_filtered.columns:
+            st.metric("Late Delivery Rate (custom)", f"{df_filtered['is_late_custom'].mean()*100:.2f}%")
+            # show distribution of delay
+            fig, ax = plt.subplots()
+            df_filtered["delivery_delay_days"].dropna().hist(bins=30, ax=ax)
+            ax.set_title("Delivery Delay Distribution (days)")
+            st.pyplot(fig)
+        else:
+            st.info("No delivery delay data available.")
+
+    st.markdown("---")
+    # Freight cost interactive
+    st.markdown("### 💸 Freight vs Satisfaction")
+    if "freight_to_price_ratio" in df_filtered.columns and "review_score" in df_filtered.columns:
+        scatter_choice = st.checkbox("Color by RFM segment", value=True)
         fig, ax = plt.subplots()
-        (df_filtered.groupby("delay_bucket")["is_unhappy"].mean()*100).plot(kind="bar", ax=ax, color="red")
-        ax.set_ylabel("Unhappy Customers (%)")
+        if scatter_choice and rfm_table is not None:
+            # merge small sample to enrich
+            merged = df_filtered.merge(rfm_table[["customer_unique_id","rfm_segment"]], on="customer_unique_id", how="left")
+            sns.scatterplot(data=merged, x="freight_to_price_ratio", y="review_score", hue="rfm_segment", alpha=0.4, ax=ax)
+        else:
+            sns.scatterplot(data=df_filtered, x="freight_to_price_ratio", y="review_score", alpha=0.4, ax=ax)
+        ax.set_xlabel("Freight / Price Ratio")
+        ax.set_ylabel("Review Score")
         st.pyplot(fig)
-else:
-    st.warning("delay_bucket not available in dataset.")
+    else:
+        st.info("Freight or review data missing for freight analysis.")
 
-st.markdown("---")
+    st.markdown("---")
+    # Payment experience
+    st.markdown("### 💳 Payment Experience")
+    if "payment_type" in df_filtered.columns and "review_score" in df_filtered.columns:
+        pay_choice = st.selectbox("Group by payment type:", options=sorted(df_filtered["payment_type"].dropna().unique()))
+        pay_agg = df_filtered[df_filtered["payment_type"] == pay_choice].groupby("payment_type")["review_score"].mean()
+        fig, ax = plt.subplots()
+        pay_agg.plot(kind="bar", ax=ax)
+        ax.set_xlabel("")
+        ax.set_ylabel("Avg Review Score")
+        st.pyplot(fig)
+    else:
+        st.info("Payment type or review data not available.")
 
-# Freight cost impact
-st.subheader("💸 Freight Cost Impact")
-if "freight_to_price_ratio" in df_filtered.columns:
-    fig, ax = plt.subplots()
-    sns.scatterplot(data=df_filtered, x="freight_to_price_ratio", y="review_score", alpha=0.3, ax=ax)
-    ax.set_xlabel("Freight / Price Ratio")
-    ax.set_ylabel("Review Score")
-    st.pyplot(fig)
-else:
-    st.warning("freight_to_price_ratio not available in dataset.")
-
-st.markdown("---")
-
-# Payment experience
-st.subheader("💳 Payment Method vs Satisfaction")
-if "payment_type" in df_filtered.columns:
-    fig, ax = plt.subplots()
-    df_filtered.groupby("payment_type")["review_score"].mean().sort_values().plot(kind="barh", ax=ax)
-    ax.set_xlabel("Average Review Score")
-    st.pyplot(fig)
-else:
-    st.warning("payment_type column not present; payment analysis unavailable.")
-
-st.markdown("---")
-
-# Product category risk table
-st.subheader("📦 Product Category Satisfaction Risk")
-if "product_category" in df_filtered.columns:
-    category_stats = (
-        df_filtered.groupby("product_category")
-        .agg(avg_review=("review_score", "mean"),
-             unhappy_rate=("is_unhappy", "mean"),
-             orders=("review_score", "count"))
-        .query("orders > 50")
-        .sort_values("unhappy_rate", ascending=False)
-    )
-    st.dataframe(
-    category_stats
-    .assign(unhappy_rate=lambda x: (x["unhappy_rate"]*100).round(2)),
-    use_container_width=True
-    )
-
-else:
-    st.warning("product_category not present.")
-
-st.markdown("---")
-
-# Geographic satisfaction
-st.subheader("📍 Satisfaction by State")
-if "customer_state" in df_filtered.columns:
-    fig, ax = plt.subplots(figsize=(10,4))
-    df_filtered.groupby("customer_state")["review_score"].mean().sort_values().plot(kind="bar", ax=ax)
-    ax.set_ylabel("Average Review Score")
-    st.pyplot(fig)
-else:
-    st.warning("customer_state not present.")
-
-st.markdown("---")
-
-# ---------------------------
-# RFM Section
-# ---------------------------
-st.subheader("🏷 Customer Segmentation (RFM Analysis)")
-st.caption(
-    "Customers grouped by Recency, Frequency, and Monetary value to guide retention and growth strategies."
-)
-if rfm_filtered is None:
-    st.warning("RFM table could not be computed (missing order timestamps or monetary info).")
-else:
-    # RFM KPIs
-    seg_counts = rfm_filtered["rfm_segment"].value_counts().rename_axis("segment").reset_index(name="customers")
-    seg_revenue = (rfm_filtered.merge(df_filtered[["customer_unique_id", "monetary_value"]].groupby("customer_unique_id").sum().reset_index(),
-                                      on="customer_unique_id", how="left")
-                   .groupby("rfm_segment")["monetary_value"].sum().reset_index(name="revenue"))
-    seg_summary = seg_counts.merge(seg_revenue, left_on="segment", right_on="rfm_segment", how="left").fillna(0)
-    seg_summary = seg_summary[["segment","customers","revenue"]].sort_values("revenue", ascending=False)
-
-    c1, c2 = st.columns([1,2])
-    with c1:
-        st.write("Customers by Segment")
-        st.bar_chart(seg_counts.set_index("segment")["customers"])
-    with c2:
-        st.write("Revenue by Segment")
-        st.bar_chart(seg_summary.set_index("segment")["revenue"])
-
-    st.markdown("**Top customers (by monetary)**")
-    top_customers = rfm_filtered.sort_values("monetary", ascending=False).head(20)
-    st.dataframe(top_customers[["customer_unique_id","recency_days","frequency","monetary","rfm_segment","rfm_score","rfm_sum"]])
-
-    st.markdown("**RFM scatter (Frequency vs Monetary), colored by Recency (days)**")
-    fig, ax = plt.subplots(figsize=(8,5))
-    sc = ax.scatter(rfm_filtered["frequency"], rfm_filtered["monetary"], c=rfm_filtered["recency_days"], cmap="viridis", alpha=0.7)
-    ax.set_xlabel("Frequency")
-    ax.set_ylabel("Monetary (Total)")
-    plt.colorbar(sc, label="Recency (days)")
-    st.pyplot(fig)
-
-st.markdown("---")
-
-# Insights block (editable)
-st.subheader("🧠 Key Business Insights & Actions")
-st.caption("Actionable recommendations derived from the data:")
-st.markdown("""
-- **RFM**: Identify 'Champions' for loyalty programs and 'At Risk' for win-back campaigns.  
-- **Delivery**: Prioritize logistics improvement for states/categories with high unhappy rates.  
-- **Freight**: Consider free-shipping thresholds or bundling for orders with high freight/price ratios.  
-- **Payment**: Make checkout smoother for payment types correlated with lower reviews.  
-""")
+    st.markdown("---")
+    # Quick insights and export
+    st.subheader("🧠 Quick Insights & Export")
+    st.markdown("""
+    - Use the segment comparison tab to prioritize audiences for campaigns.  
+    - Adjust the late-threshold slider to experiment how late-delivery definitions change KPIs.  
+    """)
+    with st.expander("📥 Download filtered orders as CSV"):
+        csv = df_filtered.to_csv(index=False)
+        st.download_button("Download CSV", csv, file_name="filtered_orders.csv", mime="text/csv")
 
 
 # End of app
