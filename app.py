@@ -169,28 +169,20 @@ def build_analytics_from_raw():
 
 
 @st.cache_data
+@st.cache_data
 def load_data():
-    # Try analytics_data.csv first
-    if os.path.exists("analytics_data.csv"):
-        try:
-            df = pd.read_csv("analytics_data.csv", low_memory=False, parse_dates=[
-                "order_purchase_timestamp",
-                "order_approved_at",
-                "order_delivered_carrier_date",
-                "order_delivered_customer_date",
-                "order_estimated_delivery_date",
-                "review_creation_date",
-                "review_answer_timestamp"
-            ])
-            return df
-        except Exception:
-            # if parsing fails, try without parse_dates
-            df = pd.read_csv("analytics_data.csv", low_memory=False)
-            return df
+    print(">>> LOADING PARQUET <<<")
+    # 1️⃣ FASTEST: Parquet
+    if os.path.exists("analytics_data.parquet"):
+        return pd.read_parquet("analytics_data.parquet")
 
-    # Else try to build from raw files
-    df = build_analytics_from_raw()
-    return df
+    # 2️⃣ Fallback: CSV
+    if os.path.exists("analytics_data.csv"):
+        return pd.read_csv("analytics_data.csv", low_memory=False)
+
+    # 3️⃣ Last resort: rebuild from raw
+    return build_analytics_from_raw()
+
 
 # ---------------------------
 # Load / prepare dataset
@@ -329,7 +321,11 @@ def compute_rfm(orders_df, customer_id_col="customer_unique_id", date_col="order
     rfm["rfm_segment"] = rfm["rfm_sum"].apply(label_segment)
     return rfm
 
-rfm_table = compute_rfm(df)
+@st.cache_data
+def get_rfm(df):
+    return compute_rfm(df)
+
+rfm_table = get_rfm(df)
 
 # ---------------------------
 # SIDEBAR: filters and segment selection
@@ -397,6 +393,10 @@ else:
 
 
 # ========== TAB 1: Overview ==========
+@st.cache_data
+def weekly_orders(df):
+    return df.set_index("order_purchase_timestamp").resample("W").size()
+
 with tab_overview:
     # Header
     st.markdown(
@@ -428,7 +428,7 @@ with tab_overview:
         st.subheader("Trends & quick views")
         # trend placeholder: orders over time if available
         if "order_purchase_timestamp" in df.columns:
-            orders_ts = df_filtered.set_index("order_purchase_timestamp").resample("W").size()
+            orders_ts = weekly_orders(df_filtered)
             fig, ax = plt.subplots()
             orders_ts.plot(ax=ax)
             ax.set_title("Orders per week (filtered)")
@@ -559,21 +559,41 @@ with tab_ops:
     st.markdown("---")
     # Freight cost interactive
     st.markdown("### 💸 Freight vs Satisfaction")
-    if "freight_to_price_ratio" in df_filtered.columns and "review_score" in df_filtered.columns:
+    if ( "freight_to_price_ratio" in df_filtered.columns and "review_score" in df_filtered.columns ):
         scatter_choice = st.checkbox("Color by RFM segment", value=True)
         fig, ax = plt.subplots()
         if scatter_choice and rfm_table is not None:
-            # merge small sample to enrich
-            merged = df_filtered.merge(rfm_table[["customer_unique_id","rfm_segment"]], on="customer_unique_id", how="left")
-            sns.scatterplot(data=merged, x="freight_to_price_ratio", y="review_score", hue="rfm_segment", alpha=0.4, ax=ax)
-        else:
-            sns.scatterplot(data=df_filtered, x="freight_to_price_ratio", y="review_score", alpha=0.4, ax=ax)
+            # Merge RFM info
+            merged = df_filtered.merge(
+                rfm_table[["customer_unique_id", "rfm_segment"]],
+                on="customer_unique_id",
+                how="left")
+            # 🔥 SAMPLE ONLY FOR PLOTTING (performance)
+            plot_df = merged.sample(min(5000, len(merged)))
+            sns.scatterplot(
+            data=plot_df,
+            x="freight_to_price_ratio",
+            y="review_score",
+            hue="rfm_segment",
+            alpha=0.4,
+            ax=ax)
+        else: 
+            # 🔥 SAMPLE ONLY FOR PLOTTING (performance)
+            plot_df = df_filtered.sample(min(5000, len(df_filtered)))
+            sns.scatterplot(
+                data=plot_df,
+                x="freight_to_price_ratio",
+                y="review_score",
+                alpha=0.4,
+                ax=ax
+            )
         ax.set_xlabel("Freight / Price Ratio")
         ax.set_ylabel("Review Score")
+        ax.set_title("Freight Cost vs Customer Satisfaction")
         st.pyplot(fig)
-    else:
+    else : 
         st.info("Freight or review data missing for freight analysis.")
-
+        
     st.markdown("---")
     # Payment experience
     st.markdown("### 💳 Payment Experience")
