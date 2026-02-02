@@ -32,6 +32,38 @@ RAW_FILES = {
     "category_translation": "product_category_name_translation.csv"
 }
 
+BRAZIL_STATE_MAP = {
+    "AC": "Acre",
+    "AL": "Alagoas",
+    "AP": "Amapá",
+    "AM": "Amazonas",
+    "BA": "Bahia",
+    "CE": "Ceará",
+    "DF": "Distrito Federal",
+    "ES": "Espírito Santo",
+    "GO": "Goiás",
+    "MA": "Maranhão",
+    "MT": "Mato Grosso",
+    "MS": "Mato Grosso do Sul",
+    "MG": "Minas Gerais",
+    "PA": "Pará",
+    "PB": "Paraíba",
+    "PR": "Paraná",
+    "PE": "Pernambuco",
+    "PI": "Piauí",
+    "RJ": "Rio de Janeiro",
+    "RN": "Rio Grande do Norte",
+    "RS": "Rio Grande do Sul",
+    "RO": "Rondônia",
+    "RR": "Roraima",
+    "SC": "Santa Catarina",
+    "SP": "São Paulo",
+    "SE": "Sergipe",
+    "TO": "Tocantins"
+}
+
+
+
 def find_raw_folder():
     # search current dir and parent for likely folders
     for cand in ["."] + BASE_RAW_FOLDER_NAMES:
@@ -164,6 +196,10 @@ def load_data():
 # Load / prepare dataset
 # ---------------------------
 df = load_data()
+
+if "customer_state" in df.columns:
+    df["customer_state_full"] = df["customer_state"].map(BRAZIL_STATE_MAP)
+
 
 if df is None:
     st.error(
@@ -302,11 +338,20 @@ st.sidebar.markdown("## 🔎 Filters")
 st.sidebar.caption("Use filters to explore specific customer segments")
 
 # reuse or redefine filters with safety if columns missing
-state_options = sorted(df["customer_state"].dropna().unique()) if "customer_state" in df.columns else []
 category_options = sorted(df["product_category"].dropna().unique()) if "product_category" in df.columns else []
+state_options = (
+    sorted(df["customer_state_full"].dropna().unique())
+    if "customer_state_full" in df.columns
+    else []
+)
 
-state_filter = st.sidebar.multiselect("Customer State", options=state_options, default=state_options)
 category_filter = st.sidebar.multiselect("Product Category", options=category_options, default=category_options)
+state_filter = st.sidebar.multiselect(
+    "Customer State",
+    options=state_options,
+    default=state_options
+)
+
 
 segment_options = sorted(rfm_table["rfm_segment"].unique()) if rfm_table is not None else []
 segment_filter = st.sidebar.multiselect("RFM Segment", options=segment_options, default=segment_options)
@@ -315,7 +360,7 @@ segment_filter = st.sidebar.multiselect("RFM Segment", options=segment_options, 
 mask = pd.Series(True, index=df.index)
 if state_filter:
     if "customer_state" in df.columns:
-        mask &= df["customer_state"].isin(state_filter)
+        mask &= df["customer_state_full"].isin(state_filter)
 if category_filter:
     if "product_category" in df.columns:
         mask &= df["product_category"].isin(category_filter)
@@ -550,3 +595,5 @@ with tab_ops:
 
 
 # End of app
+
+
