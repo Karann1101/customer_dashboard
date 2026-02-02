@@ -565,17 +565,23 @@ with tab_ops:
         df_filtered["is_late_custom"] = (df_filtered["delivery_delay_days"] > late_threshold).astype(int)
     else:
         df_filtered["is_late_custom"] = 0
+    df_filtered["delay_bucket_custom"] = np.where(
+    df_filtered["is_late_custom"] == 1,
+    f"Late (>{late_threshold} days)",
+    "On Time")
 
     st.markdown("### Delivery performance impact")
     c1, c2 = st.columns(2)
     with c1:
         # show chosen metric aggregated by delay_bucket
         if "delay_bucket" in df_filtered.columns:
-            agg = df_filtered.groupby("delay_bucket")[metric_choice].mean()
+            agg = df_filtered.groupby("delay_bucket_custom")[metric_choice].mean()
             fig, ax = plt.subplots()
             agg.plot(kind="bar", ax=ax)
             ax.set_ylabel(metric_choice.replace("_"," ").title())
-            ax.set_title(f"{metric_choice.replace('_',' ').title()} by Delivery Bucket")
+            ax.set_title(
+            f"{metric_choice.replace('_',' ').title()} by Delivery Performance "
+            f"(Threshold = {late_threshold} days)")
             st.pyplot(fig)
         else:
             st.info("No delivery_bucket data available.")
@@ -632,18 +638,29 @@ with tab_ops:
     st.markdown("---")
     # Payment experience
     st.markdown("### 💳 Payment Experience")
-    if "payment_type" in df_filtered.columns and "review_score" in df_filtered.columns:
-        pay_choice = st.selectbox("Group by payment type:", options=sorted(df_filtered["payment_type"].dropna().unique()))
-        pay_agg = df_filtered[df_filtered["payment_type"] == pay_choice].groupby("payment_type")["review_score"].mean()
+    if ("payment_type" in df_filtered.columns and "review_score" in df_filtered.columns):
+        payment_types = sorted(df_filtered["payment_type"].dropna().unique())
+        pay_choice = st.selectbox(
+        "Select payment type",
+        options=payment_types) 
+        selected_avg = (
+        df_filtered[df_filtered["payment_type"] == pay_choice]["review_score"]
+        .mean())
+        st.metric( f"⭐ Avg Rating — {pay_choice}", f"{selected_avg:.2f}") 
+        pay_agg = (
+        df_filtered
+        .groupby("payment_type")["review_score"]
+        .mean()
+        .sort_values(ascending=False))
         fig, ax = plt.subplots()
         pay_agg.plot(kind="bar", ax=ax)
-        ax.set_xlabel("")
-        ax.set_ylabel("Avg Review Score")
+        ax.axhline(selected_avg, linestyle="--", alpha=0.6)
+        ax.set_ylabel("Average Review Score")
+        ax.set_title("Average Review Score by Payment Type")
         st.pyplot(fig)
-    else:
+    else : 
         st.info("Payment type or review data not available.")
 
-    st.markdown("---")
     # Quick insights and export
     st.subheader("🧠 Quick Insights & Export")
     st.markdown("""
