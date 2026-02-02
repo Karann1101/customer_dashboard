@@ -437,10 +437,45 @@ with tab_overview:
         else:
             st.info("No order timestamp available for trend plots.")
     with c2:
-        st.subheader("Quick Actions")
-        st.write("- Target `At Risk` with email coupon")
-        st.write("- Investigate top categories with high unhappy rates")
-        st.write("- Inspect sellers in low-rating states")
+        st.subheader("⚡ Actionable Insights")
+
+        # 1️⃣ At-risk customers (FILTER-AWARE)
+        at_risk_count = (
+            rfm_filtered[rfm_filtered["rfm_segment"] == "At Risk"].shape[0]
+            if rfm_filtered is not None and not rfm_filtered.empty
+            else 0
+        )
+
+        st.metric(
+            "🎯 Customers at Risk",
+            at_risk_count,
+            help="Customers within current filters who show declining engagement"
+        )
+        st.caption("👉 Suggested action: Send retention coupon or reminder email")
+
+        st.markdown("---")
+
+        # 2️⃣ Delivery issues (already filtered via df_filtered)
+        if "delivery_delay_days" in df_filtered.columns:
+            late_rate = (df_filtered["delivery_delay_days"] > 3).mean() * 100
+            st.metric(
+                "🚚 Late Deliveries (>3 days)",
+                f"{late_rate:.1f}%",
+                help="Orders delivered later than estimated (filtered)"
+            )
+            st.caption("👉 Suggested action: Investigate logistics partners or regions")
+
+        st.markdown("---")
+
+        # 3️⃣ Unhappy orders (already filtered via df_filtered)
+        if "is_unhappy" in df_filtered.columns:
+            unhappy_rate = df_filtered["is_unhappy"].mean() * 100
+            st.metric(
+                "⚠️ Unhappy Orders",
+                f"{unhappy_rate:.1f}%",
+                help="Orders with review score ≤ 2 (filtered)"
+            )
+            st.caption("👉 Suggested action: Analyze causes and trigger support follow-up")
 
 # ========== TAB 2: RFM & Segments ==========
 with tab_rfm:
