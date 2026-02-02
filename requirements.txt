@@ -4,3 +4,6 @@ numpy
 matplotlib
 seaborn
 plotly
+scipy
+sentence-transformers
+prophet

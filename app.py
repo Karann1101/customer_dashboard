@@ -387,14 +387,14 @@ tab_overview, tab_rfm, tab_ops = st.tabs([
 ])
 
 # Prepare a revenue fallback (use RFM monetary if present, else payments/price)
-if rfm_table is not None and "monetary" in rfm_table.columns:
-    total_revenue = rfm_table["monetary"].sum()
-elif "payment_value" in df.columns:
-    total_revenue = df["payment_value"].sum()
-elif "price" in df.columns:
-    total_revenue = df["price"].sum()
+# Prepare FILTERED revenue (order-level, respects category/state filters)
+if "payment_value_sum" in df_filtered.columns:
+    total_revenue = df_filtered["payment_value_sum"].sum()
+elif "price" in df_filtered.columns:
+    total_revenue = df_filtered["price"].sum()
 else:
     total_revenue = 0.0
+
 
 # ========== TAB 1: Overview ==========
 with tab_overview:
@@ -409,10 +409,16 @@ with tab_overview:
 
     # KPIs
     k1, k2, k3, k4 = st.columns(4)
-    k1.metric("👥 Customers (unique)", df["customer_unique_id"].nunique())
+    k1.metric("👥 Customers (unique)", df_filtered["customer_unique_id"].nunique())
     k2.metric("💰 Estimated Revenue", f"₹ {total_revenue:,.0f}")
-    k3.metric("⭐ Avg Rating", round(df_filtered["review_score"].mean(), 2) if "review_score" in df_filtered.columns else "N/A")
-    k4.metric("⚠️ Unhappy %", f"{round(df_filtered['is_unhappy'].mean()*100,2)}%" if "is_unhappy" in df_filtered.columns else "N/A")
+    k3.metric(
+    "⭐ Avg Rating",
+    round(df_filtered["review_score"].mean(), 2)
+    )
+    k4.metric(
+    "⚠️ Unhappy %",
+    f"{round(df_filtered['is_unhappy'].mean()*100,2)}%"
+    )
 
     st.markdown("---")
 
